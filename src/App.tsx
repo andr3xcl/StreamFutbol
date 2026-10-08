@@ -1,37 +1,59 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
+import { HomeView } from './components/HomeView';
 import { PlayerView } from './components/PlayerView';
-import { EventsList } from './components/EventsList';
-import { ChannelsGrid } from './components/ChannelsGrid';
-import { SportEvent, ActiveStream, PlayerMode, Theme } from './types';
-import { Channel, CHANNELS } from './data/channels';
+import { MediaView } from './components/MediaView';
+import { SearchResultsView } from './components/SearchResultsView';
+import { HorarioView } from './components/HorarioView';
+import { CatalogoView } from './components/CatalogoView';
+import {
+  HomeData,
+  AnimeMediaDetail,
+  EpisodeDetail,
+  SearchResultItem,
+  Theme,
+} from './types/anime';
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
-      const saved = localStorage.getItem('streamtp_theme');
+      const saved = localStorage.getItem('littlegods_theme') || localStorage.getItem('animeav1_theme');
       if (saved === 'light' || saved === 'dark') return saved;
-      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      return window.matchMedia('(prefers-color-scheme: light)').matches
+        ? 'light'
+        : 'dark';
     } catch {
       return 'dark';
     }
   });
 
-  const [activeTab, setActiveTab] = useState<'events' | 'channels'>('events');
-  const [playerMode, setPlayerMode] = useState<PlayerMode>('global2');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [events, setEvents] = useState<SportEvent[]>([]);
-  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
-  const [activeStream, setActiveStream] = useState<ActiveStream>({
-    streamKey: 'espn',
-    title: 'ESPN 1',
-    category: 'ESPN',
-    quality: '720p',
-  });
+  const [currentView, setCurrentView] = useState<
+    'home' | 'player' | 'media' | 'search' | 'horario' | 'catalogo'
+  >('home');
+  const [homeData, setHomeData] = useState<HomeData | null>(null);
+  const [isLoadingHome, setIsLoadingHome] = useState(false);
 
+  const [currentMedia, setCurrentMedia] = useState<AnimeMediaDetail | null>(null);
+  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+
+  const [currentEpisode, setCurrentEpisode] = useState<EpisodeDetail | null>(
+    null
+  );
+  const [isLoadingEpisode, setIsLoadingEpisode] = useState(false);
+
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [activeSearchQuery, setActiveSearchQuery] = useState('');
+
+  // No anime selected by default - only set when the user selects/clicks one
+  const [activeSlug, setActiveSlug] = useState<string>('');
+  const [activeEpNum, setActiveEpNum] = useState<number>(1);
+  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
+
+  // Sync theme with document element
   useEffect(() => {
     try {
-      localStorage.setItem('streamtp_theme', theme);
+      localStorage.setItem('littlegods_theme', theme);
       if (theme === 'dark') {
         document.documentElement.classList.add('dark');
       } else {
@@ -40,74 +62,170 @@ export default function App() {
     } catch {}
   }, [theme]);
 
-  // Fetch events from backend API
-  const fetchEvents = useCallback(async () => {
-    setIsLoadingEvents(true);
+  // Fetch Home Data
+  const fetchHomeData = useCallback(async (force = false) => {
+    setIsLoadingHome(true);
     try {
-      const res = await fetch(`/api/events?t=${Date.now()}`);
+      const url = force
+        ? `/api/anime/home?refresh=1&t=${Date.now()}`
+        : '/api/anime/home';
+      const res = await fetch(url);
       if (res.ok) {
-        const data = await res.json();
-        if (data.events && Array.isArray(data.events)) {
-          setEvents(data.events);
+        const json = await res.json();
+        if (json.data) {
+          setHomeData(json.data);
         }
       }
     } catch (err) {
-      console.error('Error fetching events:', err);
+      console.error('Error fetching home data:', err);
     } finally {
-      setIsLoadingEvents(false);
+      setIsLoadingHome(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchEvents();
-    const interval = setInterval(fetchEvents, 60000);
+    fetchHomeData(false);
+    const interval = setInterval(() => {
+      fetchHomeData(false);
+    }, 60000);
     return () => clearInterval(interval);
-  }, [fetchEvents]);
+  }, [fetchHomeData]);
 
-  // Handle playing an event
-  const handlePlayEvent = (event: SportEvent, mode?: PlayerMode) => {
-    if (mode) {
-      setPlayerMode(mode);
+  // Load Media Details for a specific anime
+  const loadMedia = useCallback(async (slug: string) => {
+    if (!slug) return;
+    setIsLoadingMedia(true);
+    setActiveSlug(slug);
+    try {
+      const res = await fetch(`/api/anime/media/${encodeURIComponent(slug)}`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) {
+          setCurrentMedia(json.data);
+        }
+      }
+    } catch (err) {
+      console.error(`Error loading media ${slug}:`, err);
+    } finally {
+      setIsLoadingMedia(false);
     }
-    setActiveStream({
-      streamKey: event.streamKey || 'espn',
-      title: event.title,
-      category: event.category,
-      quality: event.quality || '720p',
-      status: event.status,
-      countryCode: event.clase,
-    });
+  }, []);
+
+  // Load Episode & Servers for a specific anime
+  const loadEpisode = useCallback(
+    async (slug: string, number: number) => {
+      if (!slug) return;
+      setIsLoadingEpisode(true);
+      setActiveSlug(slug);
+      setActiveEpNum(number);
+      try {
+        const res = await fetch(
+          `/api/anime/episode/${encodeURIComponent(slug)}/${encodeURIComponent(
+            number
+          )}`
+        );
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            setCurrentEpisode(json.data);
+            if (json.data.media) {
+              setCurrentMedia(json.data.media);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Error loading episode ${slug}/${number}:`, err);
+      } finally {
+        setIsLoadingEpisode(false);
+      }
+    },
+    []
+  );
+
+  // Search anime on AnimeAV1
+  const handlePerformSearch = useCallback(async (query: string) => {
+    if (!query.trim()) return;
+    setIsSearching(true);
+    setActiveSearchQuery(query.trim());
+    setCurrentView('search');
+    window.scrollTo({ top: 0, behavior: 'instant' });
+
+    try {
+      const res = await fetch(
+        `/api/anime/search?q=${encodeURIComponent(query.trim())}`
+      );
+      if (res.ok) {
+        const json = await res.json();
+        setSearchResults(json.results || []);
+      }
+    } catch (err) {
+      console.error('Search error:', err);
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  }, []);
+
+  // Play an episode directly (triggered by clicking an episode)
+  const handlePlayEpisode = (slug: string, number: number) => {
+    loadEpisode(slug, number);
+    setCurrentView('player');
+    window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
-  // Handle playing a channel from the 24/7 grid
-  const handlePlayChannel = (channel: Channel, mode?: PlayerMode) => {
-    if (mode) {
-      setPlayerMode(mode);
-    }
-    setActiveStream({
-      streamKey: channel.slug,
-      title: channel.name,
-      category: channel.category,
-      quality: 'HD',
-      countryCode: channel.countryCode,
-    });
+  // View an anime media overview (triggered by clicking an anime card)
+  const handleSelectMedia = (slug: string) => {
+    loadMedia(slug);
+    setCurrentView('media');
+    window.scrollTo({ top: 0, behavior: 'instant' });
   };
 
-  // Handle manual stream key change
-  const handleStreamChange = (streamKey: string, customTitle?: string) => {
-    const matchChannel = CHANNELS.find(
-      (c) => c.slug.toLowerCase() === streamKey.toLowerCase()
-    );
+  // Select episode in player
+  const handleSelectEpisodeInPlayer = (number: number) => {
+    if (activeSlug) {
+      loadEpisode(activeSlug, number);
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  };
 
-    setActiveStream({
-      streamKey,
-      title: customTitle || (matchChannel ? matchChannel.name : streamKey.toUpperCase()),
-      category: matchChannel?.category || 'Directo',
-      quality: 'HD',
-    });
+  // Handle direct URL / slug submission
+  const handleDirectSlugSubmit = (input: string) => {
+    if (!input) return;
+    let clean = input
+      .trim()
+      .replace(/^https?:\/\/animeav1\.com\//, '')
+      .replace(/^media\//, '')
+      .replace(/\/$/, '');
+
+    const parts = clean.split('/');
+    if (parts.length >= 2 && !isNaN(Number(parts[1]))) {
+      const slug = parts[0];
+      const epNum = Number(parts[1]);
+      handlePlayEpisode(slug, epNum);
+    } else {
+      if (clean.includes(' ') || !clean.includes('-')) {
+        handlePerformSearch(clean);
+      } else {
+        handleSelectMedia(clean);
+      }
+    }
+  };
+
+  const handleHeaderSearchSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!headerSearchQuery.trim()) return;
+    const query = headerSearchQuery.trim();
+    setHeaderSearchQuery('');
+    if (query.includes('/') || query.startsWith('http')) {
+      handleDirectSlugSubmit(query);
+    } else {
+      handlePerformSearch(query);
+    }
   };
 
   const isDark = theme === 'dark';
+  const hasSelectedAnime = Boolean(currentMedia || currentEpisode || activeSlug);
+  const activeAnimeTitle = currentEpisode?.media?.title || currentMedia?.title;
 
   return (
     <div
@@ -117,70 +235,120 @@ export default function App() {
     >
       {/* Header */}
       <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        playerMode={playerMode}
-        setPlayerMode={setPlayerMode}
+        currentView={currentView === 'search' ? 'home' : currentView}
+        setCurrentView={(v) => {
+          setCurrentView(v);
+        }}
         theme={theme}
         setTheme={setTheme}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        eventsCount={events.length}
+        searchQuery={headerSearchQuery}
+        setSearchQuery={setHeaderSearchQuery}
+        onSearchSubmit={handleHeaderSearchSubmit}
+        activeAnimeTitle={activeAnimeTitle}
+        hasSelectedAnime={hasSelectedAnime}
       />
 
-      {/* Main Content */}
-      <main className="flex-1 py-4 sm:py-6 space-y-5">
-        {/* Video Player */}
-        <section aria-label="Reproductor">
-          <PlayerView
-            activeStream={activeStream}
-            playerMode={playerMode}
-            setPlayerMode={setPlayerMode}
+      {/* Main Content Area */}
+      <main className="flex-1 py-5 sm:py-6">
+        {currentView === 'home' && (
+          <HomeView
+            homeData={homeData}
+            isLoading={isLoadingHome}
             theme={theme}
-            onStreamChange={handleStreamChange}
+            onPlayEpisode={handlePlayEpisode}
+            onSelectMedia={handleSelectMedia}
+            onDirectSlugSubmit={handleDirectSlugSubmit}
+            onSearch={handlePerformSearch}
+            onRefreshHome={() => fetchHomeData(true)}
           />
-        </section>
+        )}
 
-        {/* Content Tabs */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          {activeTab === 'events' ? (
-            <EventsList
-              events={events}
-              isLoading={isLoadingEvents}
-              onRefresh={fetchEvents}
-              playerMode={playerMode}
-              theme={theme}
-              onPlayEvent={handlePlayEvent}
-              searchQuery={searchQuery}
-            />
-          ) : (
-            <ChannelsGrid
-              playerMode={playerMode}
-              theme={theme}
-              onPlayChannel={handlePlayChannel}
-              searchQuery={searchQuery}
-            />
-          )}
-        </div>
+        {currentView === 'catalogo' && (
+          <CatalogoView
+            theme={theme}
+            onPlayEpisode={handlePlayEpisode}
+            onSelectMedia={handleSelectMedia}
+          />
+        )}
+
+        {currentView === 'horario' && (
+          <HorarioView
+            theme={theme}
+            onPlayEpisode={handlePlayEpisode}
+            onSelectMedia={handleSelectMedia}
+          />
+        )}
+
+        {currentView === 'search' && (
+          <SearchResultsView
+            query={activeSearchQuery}
+            results={searchResults}
+            isLoading={isSearching}
+            theme={theme}
+            onPlayEpisode={handlePlayEpisode}
+            onSelectMedia={handleSelectMedia}
+            onClearSearch={() => setCurrentView('home')}
+          />
+        )}
+
+        {currentView === 'player' && (
+          <PlayerView
+            episodeData={currentEpisode}
+            isLoading={isLoadingEpisode}
+            theme={theme}
+            onSelectEpisode={handleSelectEpisodeInPlayer}
+            onGoToMedia={() => {
+              if (activeSlug && !currentMedia) {
+                loadMedia(activeSlug);
+              }
+              setCurrentView('media');
+            }}
+          />
+        )}
+
+        {currentView === 'media' && (
+          <MediaView
+            media={currentMedia}
+            isLoading={isLoadingMedia}
+            theme={theme}
+            onPlayEpisode={(num) => {
+              if (activeSlug) handlePlayEpisode(activeSlug, num);
+            }}
+            onSelectMediaSlug={handleSelectMedia}
+            onGoHome={() => setCurrentView('home')}
+          />
+        )}
       </main>
 
       {/* Footer */}
       <footer
         className={`py-4 px-4 sm:px-6 border-t text-xs select-none transition-colors ${
-          isDark ? 'bg-black border-zinc-800 text-zinc-500' : 'bg-white border-zinc-200 text-zinc-500'
+          isDark
+            ? 'bg-black border-zinc-800 text-zinc-500'
+            : 'bg-white border-zinc-200 text-zinc-500'
         }`}
       >
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="font-bold">STREAMTP</span>
+            <span className="font-bold">LITTLEGODS ANIME</span>
             <span>&bull;</span>
-            <span>Emisión Directa</span>
+            <span
+              onClick={() => setCurrentView('catalogo')}
+              className="cursor-pointer hover:underline"
+            >
+              Catálogo
+            </span>
             <span>&bull;</span>
-            <span className="font-mono">G1 / G2</span>
+            <span
+              onClick={() => setCurrentView('horario')}
+              className="cursor-pointer hover:underline"
+            >
+              Horario Semanal
+            </span>
           </div>
 
           <div className="text-[11px] font-mono">
-            {events.length} eventos sincronizados
+            Carátulas Oficiales &bull; HLS &bull; UPNShare &bull; Voe &bull; Byse &bull; MP4Upload
           </div>
         </div>
       </footer>
