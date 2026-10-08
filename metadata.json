@@ -1,0 +1,8 @@
+{
+  "name": "StreamTP Sports Hub - Eventos y Canales en Vivo",
+  "description": "Visualizador independiente de eventos deportivos y canales en vivo sin anuncios ni redirecciones. Compatible con reproductores global1 y global2 de StreamTP.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
