@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Star, Play } from 'lucide-react';
+import { Star, Play, Flag } from 'lucide-react';
 import { CHANNELS, CATEGORIES, Channel } from '../data/channels';
-import { PlayerMode, Theme } from '../types';
+import { PlaybackMode, Theme } from '../types';
 
 interface ChannelsGridProps {
-  playerMode: PlayerMode;
+  playbackMode: PlaybackMode;
   theme: Theme;
-  onPlayChannel: (channel: Channel, mode?: PlayerMode) => void;
+  onPlayChannel: (channel: Channel, mode?: PlaybackMode) => void;
   searchQuery: string;
 }
 
 export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
-  playerMode,
+  playbackMode,
   theme,
   onPlayChannel,
   searchQuery,
@@ -19,10 +19,10 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
-      const saved = localStorage.getItem('streamtp_fav_channels');
-      return saved ? JSON.parse(saved) : ['espn', 'winplus', 'tycsports', 'dsports'];
+      const saved = localStorage.getItem('streamxhd_fav_channels');
+      return saved ? JSON.parse(saved) : ['f1', 'espn', 'winplus', 'dsports'];
     } catch {
-      return ['espn', 'winplus', 'tycsports', 'dsports'];
+      return ['f1', 'espn', 'winplus', 'dsports'];
     }
   });
 
@@ -30,7 +30,7 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
 
   useEffect(() => {
     try {
-      localStorage.setItem('streamtp_fav_channels', JSON.stringify(favorites));
+      localStorage.setItem('streamxhd_fav_channels', JSON.stringify(favorites));
     } catch {}
   }, [favorites]);
 
@@ -93,7 +93,8 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
                   : 'bg-white border-zinc-200 text-zinc-600 hover:text-black'
               }`}
             >
-              {cat}
+              {cat === 'Fórmula 1' && <Flag className="w-3 h-3 inline mr-1 opacity-60" />}
+              <span>{cat}</span>
             </button>
           );
         })}
@@ -112,6 +113,7 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5">
           {filteredChannels.map((channel) => {
             const isFav = favorites.includes(channel.id);
+            const isF1 = channel.category === 'Fórmula 1';
 
             return (
               <div
@@ -145,8 +147,9 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
                   </div>
 
                   {/* Channel Name & Slug */}
-                  <div className="font-bold text-sm leading-tight truncate">
-                    {channel.name}
+                  <div className="font-bold text-sm leading-tight truncate flex items-center gap-1.5">
+                    {isF1 && <Flag className="w-3.5 h-3.5 opacity-70 shrink-0" />}
+                    <span className="truncate">{channel.name}</span>
                   </div>
                   <div className="text-[11px] font-mono text-zinc-500 mt-0.5 truncate">
                     {channel.slug}
@@ -168,23 +171,23 @@ export const ChannelsGrid: React.FC<ChannelsGridProps> = ({
                   >
                     <button
                       onClick={() => {
-                        onPlayChannel(channel, 'global1');
+                        onPlayChannel(channel, 'live1');
                         window.scrollTo({ top: 0, behavior: 'instant' });
                       }}
-                      className="px-1 py-0.5 rounded hover:bg-zinc-800 hover:text-white"
-                      title="G1 (Manual)"
+                      className="px-1.5 py-0.5 rounded hover:bg-zinc-800 hover:text-white"
+                      title="Live1 (Manual)"
                     >
-                      G1
+                      L1
                     </button>
                     <button
                       onClick={() => {
-                        onPlayChannel(channel, 'global2');
+                        onPlayChannel(channel, 'live2');
                         window.scrollTo({ top: 0, behavior: 'instant' });
                       }}
-                      className="px-1 py-0.5 rounded hover:bg-zinc-800 hover:text-white"
-                      title="G2 (Auto)"
+                      className="px-1.5 py-0.5 rounded hover:bg-zinc-800 hover:text-white"
+                      title="Live2 (Auto)"
                     >
-                      G2
+                      L2
                     </button>
                   </div>
                 </div>

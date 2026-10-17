@@ -1,59 +1,48 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header } from './components/Header';
-import { HomeView } from './components/HomeView';
 import { PlayerView } from './components/PlayerView';
-import { MediaView } from './components/MediaView';
-import { SearchResultsView } from './components/SearchResultsView';
-import { HorarioView } from './components/HorarioView';
-import { CatalogoView } from './components/CatalogoView';
-import {
-  HomeData,
-  AnimeMediaDetail,
-  EpisodeDetail,
-  SearchResultItem,
-  Theme,
-} from './types/anime';
+import { EventsList } from './components/EventsList';
+import { ChannelsGrid } from './components/ChannelsGrid';
+import { ServerFeedbackView } from './components/ServerFeedbackView';
+import { SportEvent, ActiveStream, PlaybackMode, Theme, ServerOption } from './types';
+import { Channel, CHANNELS } from './data/channels';
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(() => {
     try {
-      const saved = localStorage.getItem('littlegods_theme') || localStorage.getItem('animeav1_theme');
+      const saved = localStorage.getItem('streamxhd_theme');
       if (saved === 'light' || saved === 'dark') return saved;
-      return window.matchMedia('(prefers-color-scheme: light)').matches
-        ? 'light'
-        : 'dark';
+      return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
     } catch {
       return 'dark';
     }
   });
 
-  const [currentView, setCurrentView] = useState<
-    'home' | 'player' | 'media' | 'search' | 'horario' | 'catalogo'
-  >('home');
-  const [homeData, setHomeData] = useState<HomeData | null>(null);
-  const [isLoadingHome, setIsLoadingHome] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'futbol' | 'f1' | 'channels' | 'servers'>('all');
+  const [playbackMode, setPlaybackMode] = useState<PlaybackMode>(() => {
+    try {
+      const saved = localStorage.getItem('streamxhd_playback_mode');
+      return saved === 'live2' ? 'live2' : 'live1';
+    } catch {
+      return 'live2'; // Default automatic with sound button
+    }
+  });
 
-  const [currentMedia, setCurrentMedia] = useState<AnimeMediaDetail | null>(null);
-  const [isLoadingMedia, setIsLoadingMedia] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [events, setEvents] = useState<SportEvent[]>([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
+  const [availableServers, setAvailableServers] = useState<ServerOption[]>([]);
 
-  const [currentEpisode, setCurrentEpisode] = useState<EpisodeDetail | null>(
-    null
-  );
-  const [isLoadingEpisode, setIsLoadingEpisode] = useState(false);
+  const [activeStream, setActiveStream] = useState<ActiveStream>({
+    streamKey: 'espn',
+    title: 'ESPN 1 - Señal en Vivo',
+    sportName: 'Fútbol & Deportes',
+    leagueName: 'En Directo',
+  });
 
-  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [activeSearchQuery, setActiveSearchQuery] = useState('');
-
-  // No anime selected by default - only set when the user selects/clicks one
-  const [activeSlug, setActiveSlug] = useState<string>('');
-  const [activeEpNum, setActiveEpNum] = useState<number>(1);
-  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
-
-  // Sync theme with document element
   useEffect(() => {
     try {
-      localStorage.setItem('littlegods_theme', theme);
+      localStorage.setItem('streamxhd_theme', theme);
       if (theme === 'dark') {
         document.documentElement.classList.add('dark');
       } else {
@@ -62,170 +51,94 @@ export default function App() {
     } catch {}
   }, [theme]);
 
-  // Fetch Home Data
-  const fetchHomeData = useCallback(async (force = false) => {
-    setIsLoadingHome(true);
+  useEffect(() => {
     try {
-      const url = force
-        ? `/api/anime/home?refresh=1&t=${Date.now()}`
-        : '/api/anime/home';
+      localStorage.setItem('streamxhd_playback_mode', playbackMode);
+    } catch {}
+  }, [playbackMode]);
+
+  // Fetch events from backend API (with failover across official mirrors)
+  const fetchEvents = useCallback(async (force = false) => {
+    setIsLoadingEvents(true);
+    try {
+      const url = force ? `/api/sports/events?refresh=1&t=${Date.now()}` : '/api/sports/events';
       const res = await fetch(url);
       if (res.ok) {
-        const json = await res.json();
-        if (json.data) {
-          setHomeData(json.data);
+        const data = await res.json();
+        if (data.events && Array.isArray(data.events)) {
+          setEvents(data.events);
         }
       }
     } catch (err) {
-      console.error('Error fetching home data:', err);
+      console.error('Error fetching sports events:', err);
     } finally {
-      setIsLoadingHome(false);
+      setIsLoadingEvents(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchHomeData(false);
-    const interval = setInterval(() => {
-      fetchHomeData(false);
-    }, 60000);
+    fetchEvents();
+    // Poll every 60 seconds for live score and stream updates
+    const interval = setInterval(() => fetchEvents(false), 60000);
     return () => clearInterval(interval);
-  }, [fetchHomeData]);
+  }, [fetchEvents]);
 
-  // Load Media Details for a specific anime
-  const loadMedia = useCallback(async (slug: string) => {
-    if (!slug) return;
-    setIsLoadingMedia(true);
-    setActiveSlug(slug);
-    try {
-      const res = await fetch(`/api/anime/media/${encodeURIComponent(slug)}`);
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) {
-          setCurrentMedia(json.data);
-        }
-      }
-    } catch (err) {
-      console.error(`Error loading media ${slug}:`, err);
-    } finally {
-      setIsLoadingMedia(false);
+  // Handle playing an event
+  const handlePlayEvent = (event: SportEvent, streamKey?: string, mode?: PlaybackMode) => {
+    if (mode) {
+      setPlaybackMode(mode);
     }
-  }, []);
 
-  // Load Episode & Servers for a specific anime
-  const loadEpisode = useCallback(
-    async (slug: string, number: number) => {
-      if (!slug) return;
-      setIsLoadingEpisode(true);
-      setActiveSlug(slug);
-      setActiveEpNum(number);
-      try {
-        const res = await fetch(
-          `/api/anime/episode/${encodeURIComponent(slug)}/${encodeURIComponent(
-            number
-          )}`
-        );
-        if (res.ok) {
-          const json = await res.json();
-          if (json.data) {
-            setCurrentEpisode(json.data);
-            if (json.data.media) {
-              setCurrentMedia(json.data.media);
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`Error loading episode ${slug}/${number}:`, err);
-      } finally {
-        setIsLoadingEpisode(false);
-      }
-    },
-    []
-  );
+    const chosenServer = streamKey
+      ? event.servers.find((s) => s.streamKey === streamKey) || event.servers[0]
+      : event.servers[0];
 
-  // Search anime on AnimeAV1
-  const handlePerformSearch = useCallback(async (query: string) => {
-    if (!query.trim()) return;
-    setIsSearching(true);
-    setActiveSearchQuery(query.trim());
-    setCurrentView('search');
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    const key = chosenServer?.streamKey || streamKey || 'espn';
 
-    try {
-      const res = await fetch(
-        `/api/anime/search?q=${encodeURIComponent(query.trim())}`
-      );
-      if (res.ok) {
-        const json = await res.json();
-        setSearchResults(json.results || []);
-      }
-    } catch (err) {
-      console.error('Search error:', err);
-      setSearchResults([]);
-    } finally {
-      setIsSearching(false);
-    }
-  }, []);
+    setActiveStream({
+      streamKey: key,
+      title: event.title,
+      sportName: event.sportName,
+      leagueName: event.leagueName,
+      serverName: chosenServer?.name,
+      originalUrl: chosenServer?.url,
+    });
 
-  // Play an episode directly (triggered by clicking an episode)
-  const handlePlayEpisode = (slug: string, number: number) => {
-    loadEpisode(slug, number);
-    setCurrentView('player');
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    setAvailableServers(event.servers);
   };
 
-  // View an anime media overview (triggered by clicking an anime card)
-  const handleSelectMedia = (slug: string) => {
-    loadMedia(slug);
-    setCurrentView('media');
-    window.scrollTo({ top: 0, behavior: 'instant' });
+  // Handle playing a channel from the 24/7 grid
+  const handlePlayChannel = (channel: Channel, mode?: PlaybackMode) => {
+    if (mode) {
+      setPlaybackMode(mode);
+    }
+
+    setActiveStream({
+      streamKey: channel.slug,
+      title: channel.name,
+      sportName: channel.category,
+      leagueName: channel.country,
+      serverName: channel.name,
+    });
+
+    setAvailableServers([{ name: channel.name, url: '', streamKey: channel.slug }]);
   };
 
-  // Select episode in player
-  const handleSelectEpisodeInPlayer = (number: number) => {
-    if (activeSlug) {
-      loadEpisode(activeSlug, number);
-      window.scrollTo({ top: 0, behavior: 'instant' });
-    }
-  };
+  // Handle manual stream key change
+  const handleStreamChange = (streamKey: string, customTitle?: string) => {
+    const matchChannel = CHANNELS.find(
+      (c) => c.slug.toLowerCase() === streamKey.toLowerCase()
+    );
 
-  // Handle direct URL / slug submission
-  const handleDirectSlugSubmit = (input: string) => {
-    if (!input) return;
-    let clean = input
-      .trim()
-      .replace(/^https?:\/\/animeav1\.com\//, '')
-      .replace(/^media\//, '')
-      .replace(/\/$/, '');
-
-    const parts = clean.split('/');
-    if (parts.length >= 2 && !isNaN(Number(parts[1]))) {
-      const slug = parts[0];
-      const epNum = Number(parts[1]);
-      handlePlayEpisode(slug, epNum);
-    } else {
-      if (clean.includes(' ') || !clean.includes('-')) {
-        handlePerformSearch(clean);
-      } else {
-        handleSelectMedia(clean);
-      }
-    }
-  };
-
-  const handleHeaderSearchSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!headerSearchQuery.trim()) return;
-    const query = headerSearchQuery.trim();
-    setHeaderSearchQuery('');
-    if (query.includes('/') || query.startsWith('http')) {
-      handleDirectSlugSubmit(query);
-    } else {
-      handlePerformSearch(query);
-    }
+    setActiveStream({
+      streamKey,
+      title: customTitle || (matchChannel ? matchChannel.name : streamKey.toUpperCase()),
+      sportName: matchChannel?.category || 'Deportes',
+      leagueName: matchChannel?.country || 'Señal Directa',
+    });
   };
 
   const isDark = theme === 'dark';
-  const hasSelectedAnime = Boolean(currentMedia || currentEpisode || activeSlug);
-  const activeAnimeTitle = currentEpisode?.media?.title || currentMedia?.title;
 
   return (
     <div
@@ -235,120 +148,109 @@ export default function App() {
     >
       {/* Header */}
       <Header
-        currentView={currentView === 'search' ? 'home' : currentView}
-        setCurrentView={(v) => {
-          setCurrentView(v);
-        }}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        playbackMode={playbackMode}
+        setPlaybackMode={setPlaybackMode}
         theme={theme}
         setTheme={setTheme}
-        searchQuery={headerSearchQuery}
-        setSearchQuery={setHeaderSearchQuery}
-        onSearchSubmit={handleHeaderSearchSubmit}
-        activeAnimeTitle={activeAnimeTitle}
-        hasSelectedAnime={hasSelectedAnime}
+        searchQuery={searchQuery}
+        setSearchQuery={setSearchQuery}
+        eventsCount={events.length}
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 py-5 sm:py-6">
-        {currentView === 'home' && (
-          <HomeView
-            homeData={homeData}
-            isLoading={isLoadingHome}
-            theme={theme}
-            onPlayEpisode={handlePlayEpisode}
-            onSelectMedia={handleSelectMedia}
-            onDirectSlugSubmit={handleDirectSlugSubmit}
-            onSearch={handlePerformSearch}
-            onRefreshHome={() => fetchHomeData(true)}
-          />
-        )}
-
-        {currentView === 'catalogo' && (
-          <CatalogoView
-            theme={theme}
-            onPlayEpisode={handlePlayEpisode}
-            onSelectMedia={handleSelectMedia}
-          />
-        )}
-
-        {currentView === 'horario' && (
-          <HorarioView
-            theme={theme}
-            onPlayEpisode={handlePlayEpisode}
-            onSelectMedia={handleSelectMedia}
-          />
-        )}
-
-        {currentView === 'search' && (
-          <SearchResultsView
-            query={activeSearchQuery}
-            results={searchResults}
-            isLoading={isSearching}
-            theme={theme}
-            onPlayEpisode={handlePlayEpisode}
-            onSelectMedia={handleSelectMedia}
-            onClearSearch={() => setCurrentView('home')}
-          />
-        )}
-
-        {currentView === 'player' && (
+      <main className="flex-1 py-4 sm:py-6 space-y-5">
+        {/* Isolated Sports Player */}
+        <section aria-label="Reproductor de Deportes">
           <PlayerView
-            episodeData={currentEpisode}
-            isLoading={isLoadingEpisode}
+            activeStream={activeStream}
+            playbackMode={playbackMode}
+            setPlaybackMode={setPlaybackMode}
             theme={theme}
-            onSelectEpisode={handleSelectEpisodeInPlayer}
-            onGoToMedia={() => {
-              if (activeSlug && !currentMedia) {
-                loadMedia(activeSlug);
-              }
-              setCurrentView('media');
-            }}
+            onStreamChange={handleStreamChange}
+            availableServers={availableServers}
           />
-        )}
+        </section>
 
-        {currentView === 'media' && (
-          <MediaView
-            media={currentMedia}
-            isLoading={isLoadingMedia}
-            theme={theme}
-            onPlayEpisode={(num) => {
-              if (activeSlug) handlePlayEpisode(activeSlug, num);
-            }}
-            onSelectMediaSlug={handleSelectMedia}
-            onGoHome={() => setCurrentView('home')}
-          />
-        )}
+        {/* Content Tabs */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6">
+          {activeTab === 'all' && (
+            <EventsList
+              events={events}
+              isLoading={isLoadingEvents}
+              onRefresh={() => fetchEvents(true)}
+              playbackMode={playbackMode}
+              theme={theme}
+              onPlayEvent={handlePlayEvent}
+              searchQuery={searchQuery}
+              defaultSportFilter="all"
+            />
+          )}
+
+          {activeTab === 'futbol' && (
+            <EventsList
+              events={events}
+              isLoading={isLoadingEvents}
+              onRefresh={() => fetchEvents(true)}
+              playbackMode={playbackMode}
+              theme={theme}
+              onPlayEvent={handlePlayEvent}
+              searchQuery={searchQuery}
+              defaultSportFilter="futbol"
+            />
+          )}
+
+          {activeTab === 'f1' && (
+            <EventsList
+              events={events}
+              isLoading={isLoadingEvents}
+              onRefresh={() => fetchEvents(true)}
+              playbackMode={playbackMode}
+              theme={theme}
+              onPlayEvent={handlePlayEvent}
+              searchQuery={searchQuery}
+              defaultSportFilter="f1"
+            />
+          )}
+
+          {activeTab === 'channels' && (
+            <ChannelsGrid
+              playbackMode={playbackMode}
+              theme={theme}
+              onPlayChannel={handlePlayChannel}
+              searchQuery={searchQuery}
+            />
+          )}
+
+          {activeTab === 'servers' && (
+            <ServerFeedbackView theme={theme} />
+          )}
+        </div>
       </main>
 
       {/* Footer */}
       <footer
         className={`py-4 px-4 sm:px-6 border-t text-xs select-none transition-colors ${
-          isDark
-            ? 'bg-black border-zinc-800 text-zinc-500'
-            : 'bg-white border-zinc-200 text-zinc-500'
+          isDark ? 'bg-black border-zinc-800 text-zinc-500' : 'bg-white border-zinc-200 text-zinc-500'
         }`}
       >
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="font-bold">LITTLEGODS ANIME</span>
+            <span className="font-bold">STREAMXHD</span>
+            <span>&bull;</span>
+            <span>Fútbol & Fórmula 1</span>
             <span>&bull;</span>
             <span
-              onClick={() => setCurrentView('catalogo')}
-              className="cursor-pointer hover:underline"
+              onClick={() => setActiveTab('servers')}
+              className="cursor-pointer hover:underline font-mono"
             >
-              Catálogo
-            </span>
-            <span>&bull;</span>
-            <span
-              onClick={() => setCurrentView('horario')}
-              className="cursor-pointer hover:underline"
-            >
-              Horario Semanal
+              Servidores Oficiales (StreamVeri)
             </span>
           </div>
 
           <div className="text-[11px] font-mono">
-            Carátulas Oficiales &bull; HLS &bull; UPNShare &bull; Voe &bull; Byse &bull; MP4Upload
+            {events.length} eventos sincronizados &bull; Live1 Manual / Live2 Auto
           </div>
         </div>
       </footer>

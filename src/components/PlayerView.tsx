@@ -1,114 +1,79 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Maximize2,
-  ChevronLeft,
-  ChevronRight,
-  Download,
+  RefreshCw,
   ExternalLink,
   Copy,
   Check,
-  RefreshCw,
-  Info,
-  X,
+  Radio,
+  Tv,
 } from 'lucide-react';
-import { EpisodeDetail, Theme, ServerEmbed } from '../types/anime';
+import { ActiveStream, PlaybackMode, ServerOption, Theme } from '../types';
 
 interface PlayerViewProps {
-  episodeData: EpisodeDetail | null;
-  isLoading: boolean;
+  activeStream: ActiveStream;
+  playbackMode: PlaybackMode;
+  setPlaybackMode: (mode: PlaybackMode) => void;
   theme: Theme;
-  onSelectEpisode: (number: number) => void;
-  onGoToMedia: () => void;
+  onStreamChange: (streamKey: string, title?: string) => void;
+  availableServers?: ServerOption[];
 }
 
 export const PlayerView: React.FC<PlayerViewProps> = ({
-  episodeData,
-  isLoading,
+  activeStream,
+  playbackMode,
+  setPlaybackMode,
   theme,
-  onSelectEpisode,
-  onGoToMedia,
+  onStreamChange,
+  availableServers = [],
 }) => {
-  const [selectedLang, setSelectedLang] = useState<'SUB' | 'DUB'>('SUB');
-  const [selectedServerIndex, setSelectedServerIndex] = useState(0);
-  const [isTheater, setIsTheater] = useState(false);
-  const [showDownloads, setShowDownloads] = useState(false);
-  const [showInfo, setShowInfo] = useState(false);
-  const [copied, setCopied] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [isTheater, setIsTheater] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [customInput, setCustomInput] = useState('');
+  const [showCustomBar, setShowCustomBar] = useState(false);
 
   const isDark = theme === 'dark';
 
-  // Available servers for current selected language
-  const availableServers: ServerEmbed[] =
-    episodeData?.embeds?.[selectedLang] ||
-    episodeData?.embeds?.SUB ||
-    episodeData?.embeds?.DUB ||
-    [];
+  const playerSrc = `/api/sports/player?stream=${encodeURIComponent(
+    activeStream.streamKey || 'espn'
+  )}&mode=${playbackMode}&theme=${theme}&v=${reloadKey}`;
 
-  // Fallback to SUB if DUB not available or vice-versa
-  useEffect(() => {
-    if (episodeData?.embeds) {
-      if (selectedLang === 'DUB' && (!episodeData.embeds.DUB || episodeData.embeds.DUB.length === 0)) {
-        setSelectedLang('SUB');
-      }
-      setSelectedServerIndex(0);
-    }
-  }, [episodeData, selectedLang]);
-
-  const currentServer = availableServers[selectedServerIndex] || availableServers[0];
+  const handleRefresh = () => {
+    setReloadKey((prev) => prev + 1);
+  };
 
   const handleCopyLink = () => {
-    if (currentServer?.url) {
-      navigator.clipboard.writeText(currentServer.url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    const directUrl = `${window.location.origin}/api/sports/player?stream=${encodeURIComponent(
+      activeStream.streamKey
+    )}&mode=${playbackMode}&theme=${theme}`;
+    navigator.clipboard.writeText(directUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleOpenOriginal = () => {
-    if (currentServer?.url) {
-      window.open(currentServer.url, '_blank', 'noopener,noreferrer');
-    }
+  const handleOpenStandalone = () => {
+    const standaloneUrl = `/api/sports/player?stream=${encodeURIComponent(
+      activeStream.streamKey
+    )}&mode=${playbackMode}&theme=${theme}`;
+    window.open(standaloneUrl, '_blank', 'noopener,noreferrer');
   };
 
-  if (isLoading) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-20 text-center">
-        <div className="font-mono text-xs opacity-60">Cargando reproductor y servidores...</div>
-      </div>
-    );
-  }
-
-  if (!episodeData) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-20 text-center space-y-3">
-        <p className="text-sm font-semibold">No hay episodio seleccionado.</p>
-        <p className="text-xs text-zinc-500">
-          Elige un anime o episodio desde el inicio o el buscador para iniciar la reproducción.
-        </p>
-      </div>
-    );
-  }
-
-  const { media, episode } = episodeData;
-  const currentEpNum = episode.number;
-  const allEpisodes = media.episodes || [];
-  const hasPrev = currentEpNum > 1;
-  const hasNext = allEpisodes.some((e) => e.number === currentEpNum + 1);
-
-  const playerSrc = currentServer?.url
-    ? `/api/anime/player?url=${encodeURIComponent(currentServer.url)}&theme=${theme}&v=${reloadKey}`
-    : '';
-
-  const downloadLinks =
-    episodeData.downloads?.[selectedLang] ||
-    episodeData.downloads?.SUB ||
-    episodeData.downloads?.DUB ||
-    [];
+  const handleCustomSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customInput.trim()) return;
+    const cleanKey = customInput
+      .trim()
+      .replace(/https?:\/\/[^\/]+\/(live[12]\.php\?stream=)?/, '')
+      .replace(/^stream=/, '');
+    onStreamChange(cleanKey, cleanKey.toUpperCase());
+    setCustomInput('');
+    setShowCustomBar(false);
+  };
 
   return (
     <div
-      className={`mx-auto transition-all space-y-4 ${
+      className={`mx-auto transition-all space-y-2 ${
         isTheater ? 'max-w-[100vw] px-0' : 'max-w-7xl px-4 sm:px-6'
       }`}
     >
@@ -117,75 +82,67 @@ export const PlayerView: React.FC<PlayerViewProps> = ({
           isDark ? 'bg-black border-zinc-800' : 'bg-white border-zinc-200'
         }`}
       >
-        {/* Top Control Bar: Title & Next/Prev */}
+        {/* Title Bar */}
         <div
           className={`px-4 py-2.5 border-b flex flex-wrap items-center justify-between gap-3 text-xs ${
             isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-200' : 'bg-zinc-50 border-zinc-200 text-zinc-800'
           }`}
         >
           <div className="flex items-center gap-2.5 min-w-0">
-            <button
-              onClick={onGoToMedia}
-              className="font-bold text-sm tracking-tight truncate hover:underline text-left"
-              title="Ver página del anime"
-            >
-              {media.title}
-            </button>
+            <span className="font-bold text-sm tracking-tight truncate">
+              {activeStream.title}
+            </span>
+
+            {activeStream.leagueName && (
+              <span
+                className={`hidden sm:inline px-1.5 py-0.5 rounded text-[11px] font-medium border ${
+                  isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-600'
+                }`}
+              >
+                {activeStream.leagueName}
+              </span>
+            )}
+
             <span
-              className={`font-mono text-xs px-2 py-0.5 rounded border ${
-                isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-300' : 'bg-white border-zinc-200 text-zinc-700'
+              className={`font-mono text-[11px] px-1.5 py-0.5 rounded border ${
+                isDark ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-white border-zinc-200 text-zinc-500'
               }`}
             >
-              Episodio {currentEpNum}
+              {activeStream.streamKey}
             </span>
           </div>
 
-          {/* Quick Actions & Prev/Next */}
+          {/* Action Tools */}
           <div className="flex items-center gap-1.5 ml-auto">
+            {/* Mode Switcher */}
             <button
-              onClick={() => hasPrev && onSelectEpisode(currentEpNum - 1)}
-              disabled={!hasPrev}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-semibold transition-colors disabled:opacity-30 ${
+              onClick={() => setPlaybackMode(playbackMode === 'live1' ? 'live2' : 'live1')}
+              className={`px-2.5 py-1 rounded text-xs font-semibold border transition-colors ${
                 isDark
                   ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:text-black'
               }`}
-              title="Episodio anterior"
+              title="Alternar entre modo manual y automático"
             >
-              <ChevronLeft className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Anterior</span>
+              Modo: {playbackMode === 'live2' ? 'Auto (Live2)' : 'Manual (Live1)'}
             </button>
 
             <button
-              onClick={() => hasNext && onSelectEpisode(currentEpNum + 1)}
-              disabled={!hasNext}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded border text-xs font-semibold transition-colors disabled:opacity-30 ${
-                isDark
-                  ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
-                  : 'bg-white border-zinc-200 text-zinc-700 hover:text-black'
-              }`}
-              title="Episodio siguiente"
-            >
-              <span className="hidden sm:inline">Siguiente</span>
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              onClick={() => setReloadKey((k) => k + 1)}
+              onClick={handleRefresh}
               className={`p-1.5 rounded border transition-colors ${
                 isDark
                   ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:text-black'
               }`}
-              title="Recargar reproductor"
+              title="Recargar señal"
             >
               <RefreshCw className="w-3.5 h-3.5" />
             </button>
 
             <button
-              onClick={() => setShowDownloads(!showDownloads)}
-              className={`flex items-center gap-1 px-2 py-1 rounded border text-xs font-semibold transition-colors ${
-                showDownloads
+              onClick={() => setShowCustomBar(!showCustomBar)}
+              className={`px-2.5 py-1 rounded border text-xs font-semibold transition-colors ${
+                showCustomBar
                   ? isDark
                     ? 'bg-zinc-800 border-zinc-700 text-white'
                     : 'bg-zinc-200 border-zinc-300 text-black'
@@ -193,10 +150,9 @@ export const PlayerView: React.FC<PlayerViewProps> = ({
                   ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:text-black'
               }`}
-              title="Descargar episodio"
+              title="Cargar stream directo"
             >
-              <Download className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Descargas</span>
+              Canal
             </button>
 
             <button
@@ -212,13 +168,13 @@ export const PlayerView: React.FC<PlayerViewProps> = ({
             </button>
 
             <button
-              onClick={handleOpenOriginal}
+              onClick={handleOpenStandalone}
               className={`p-1.5 rounded border transition-colors ${
                 isDark
                   ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:text-black'
               }`}
-              title="Abrir servidor en pestaña"
+              title="Abrir en ventana independiente"
             >
               <ExternalLink className="w-3.5 h-3.5" />
             </button>
@@ -230,207 +186,103 @@ export const PlayerView: React.FC<PlayerViewProps> = ({
                   ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white'
                   : 'bg-white border-zinc-200 text-zinc-700 hover:text-black'
               }`}
-              title="Copiar enlace del servidor"
+              title="Copiar enlace directo"
             >
-              {copied ? <Check className="w-3.5 h-3.5 text-zinc-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>
 
-        {/* Server & Language Switcher Bar */}
-        <div
-          className={`px-4 py-2 border-b flex flex-wrap items-center justify-between gap-3 text-xs ${
-            isDark ? 'bg-black border-zinc-800' : 'bg-white border-zinc-200'
-          }`}
-        >
-          {/* Language selector */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-[11px] font-semibold text-zinc-400 uppercase">Audio:</span>
-            <div
-              className={`flex items-center p-0.5 rounded border font-mono text-xs ${
-                isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
-              }`}
-            >
-              <button
-                onClick={() => setSelectedLang('SUB')}
-                className={`px-2 py-0.5 rounded transition-colors ${
-                  selectedLang === 'SUB'
-                    ? isDark
-                      ? 'bg-zinc-800 text-white font-bold'
-                      : 'bg-white text-black font-bold shadow-xs'
-                    : 'opacity-60 hover:opacity-100'
-                }`}
-              >
-                SUB (Subtitulado)
-              </button>
-              {episodeData.embeds?.DUB && episodeData.embeds.DUB.length > 0 && (
+        {/* Server Switcher Bar if event has multiple servers */}
+        {availableServers.length > 1 && (
+          <div
+            className={`px-4 py-2 border-b flex items-center gap-2 overflow-x-auto text-xs scrollbar-none ${
+              isDark ? 'bg-black border-zinc-800' : 'bg-white border-zinc-200'
+            }`}
+          >
+            <span className="text-[11px] font-semibold text-zinc-500 uppercase mr-1 shrink-0">
+              Opciones de Transmisión:
+            </span>
+            {availableServers.map((srv, idx) => {
+              const isCurrent = srv.streamKey === activeStream.streamKey;
+
+              return (
                 <button
-                  onClick={() => setSelectedLang('DUB')}
-                  className={`px-2 py-0.5 rounded transition-colors ${
-                    selectedLang === 'DUB'
+                  key={`${srv.name}-${idx}`}
+                  onClick={() => onStreamChange(srv.streamKey || 'espn', srv.name)}
+                  className={`px-2.5 py-1 rounded text-xs font-semibold whitespace-nowrap border transition-colors ${
+                    isCurrent
                       ? isDark
-                        ? 'bg-zinc-800 text-white font-bold'
-                        : 'bg-white text-black font-bold shadow-xs'
-                      : 'opacity-60 hover:opacity-100'
+                        ? 'bg-white text-black border-white'
+                        : 'bg-black text-white border-black'
+                      : isDark
+                      ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
+                      : 'bg-zinc-100 border-zinc-200 text-zinc-700 hover:text-black'
                   }`}
                 >
-                  DUB (Español)
+                  {srv.name}
                 </button>
-              )}
-            </div>
+              );
+            })}
           </div>
+        )}
 
-          {/* Servers list */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none">
-            <span className="text-[11px] font-semibold text-zinc-400 uppercase mr-1">Servidor:</span>
-            {availableServers.map((server, idx) => (
-              <button
-                key={`${server.server}-${idx}`}
-                onClick={() => setSelectedServerIndex(idx)}
-                className={`px-2.5 py-1 rounded text-xs font-semibold whitespace-nowrap border transition-colors ${
-                  selectedServerIndex === idx
-                    ? isDark
-                      ? 'bg-white text-black border-white'
-                      : 'bg-black text-white border-black'
-                    : isDark
-                    ? 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-white'
-                    : 'bg-zinc-100 border-zinc-200 text-zinc-700 hover:text-black'
-                }`}
-              >
-                {server.server}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Downloads Modal/Drawer */}
-        {showDownloads && (
-          <div
-            className={`p-4 border-b text-xs ${
+        {/* Custom Slug Input */}
+        {showCustomBar && (
+          <form
+            onSubmit={handleCustomSubmit}
+            className={`px-4 py-2 border-b flex flex-wrap items-center gap-2 text-xs ${
               isDark ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
             }`}
           >
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-bold">Servidores de Descarga Directa ({selectedLang}):</span>
-              <button
-                onClick={() => setShowDownloads(false)}
-                className="opacity-60 hover:opacity-100"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            {downloadLinks.length === 0 ? (
-              <p className="text-zinc-500">No hay enlaces de descarga disponibles para esta opción.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {downloadLinks.map((dl, idx) => (
-                  <a
-                    key={`${dl.server}-${idx}`}
-                    href={dl.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded border font-semibold transition-colors ${
-                      isDark
-                        ? 'bg-zinc-900 border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:text-white'
-                        : 'bg-white border-zinc-300 text-zinc-800 hover:bg-zinc-100 hover:text-black'
-                    }`}
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>{dl.server}</span>
-                    <ExternalLink className="w-2.5 h-2.5 opacity-60 ml-0.5" />
-                  </a>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Video Player Frame Container */}
-        <div className="relative w-full aspect-video bg-black flex items-center justify-center">
-          {playerSrc ? (
-            <iframe
-              key={`${currentServer?.url}-${selectedLang}-${reloadKey}`}
-              src={playerSrc}
-              title={`Reproductor ${media.title} Episodio ${currentEpNum}`}
-              className="w-full h-full border-0 absolute inset-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
+            <span className="font-semibold">Stream key:</span>
+            <input
+              type="text"
+              value={customInput}
+              onChange={(e) => setCustomInput(e.target.value)}
+              placeholder="f1, f1tv, daznf1, espn, winplus, dsports, foxone..."
+              className={`flex-1 min-w-[200px] border rounded px-2.5 py-1 text-xs focus:outline-none ${
+                isDark
+                  ? 'bg-black border-zinc-800 text-white placeholder-zinc-600 focus:border-zinc-700'
+                  : 'bg-white border-zinc-300 text-black placeholder-zinc-400 focus:border-zinc-500'
+              }`}
             />
-          ) : (
-            <div className="font-mono text-xs text-zinc-500">No se pudo cargar el servidor seleccionado.</div>
-          )}
-        </div>
-      </div>
-
-      {/* Episode Selector Grid */}
-      <div
-        className={`p-4 rounded-lg border ${
-          isDark ? 'bg-black border-zinc-800' : 'bg-white border-zinc-200'
-        }`}
-      >
-        <div className="flex items-center justify-between mb-3 text-xs">
-          <span className="font-bold">Todos los Episodios ({allEpisodes.length}):</span>
-          <button
-            onClick={() => setShowInfo(!showInfo)}
-            className="flex items-center gap-1 text-zinc-400 hover:text-zinc-100"
-          >
-            <Info className="w-3.5 h-3.5" />
-            <span>{showInfo ? 'Ocultar sinopsis' : 'Ver sinopsis'}</span>
-          </button>
-        </div>
-
-        {/* Episodes Buttons Grid */}
-        <div className="grid grid-cols-6 sm:grid-cols-10 md:grid-cols-14 gap-1.5">
-          {allEpisodes.map((ep) => {
-            const isCurrent = ep.number === currentEpNum;
-            return (
-              <button
-                key={ep.id}
-                onClick={() => onSelectEpisode(ep.number)}
-                className={`py-2 px-1 text-xs font-mono font-bold rounded border transition-colors ${
-                  isCurrent
-                    ? isDark
-                      ? 'bg-white text-black border-white'
-                      : 'bg-black text-white border-black'
-                    : isDark
-                    ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-800'
-                    : 'bg-zinc-50 border-zinc-200 text-zinc-800 hover:bg-zinc-100'
-                }`}
-              >
-                {ep.number}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Collapsible Info Section */}
-        {showInfo && (
-          <div
-            className={`mt-4 pt-3 border-t text-xs space-y-2 ${
-              isDark ? 'border-zinc-800 text-zinc-400' : 'border-zinc-100 text-zinc-600'
-            }`}
-          >
-            {media.aka && (
-              <div className="space-y-0.5">
-                {media.aka['ja-jp'] && <div>Japonés: {media.aka['ja-jp']}</div>}
-                {media.aka['en-us'] && <div>Inglés: {media.aka['en-us']}</div>}
-              </div>
-            )}
-            <p className="leading-relaxed">{media.synopsis}</p>
-            {media.genres && (
-              <div className="flex flex-wrap gap-1 pt-1">
-                {media.genres.map((g) => (
-                  <span
-                    key={g.id}
-                    className="px-2 py-0.5 rounded text-[11px] font-medium border border-inherit"
-                  >
-                    {g.name}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
+            <button
+              type="submit"
+              className={`font-semibold px-3 py-1 rounded border text-xs transition-colors ${
+                isDark
+                  ? 'bg-zinc-800 hover:bg-zinc-700 text-white border-zinc-700'
+                  : 'bg-black hover:bg-zinc-800 text-white border-black'
+              }`}
+            >
+              Cargar
+            </button>
+            <div className="flex items-center gap-1 font-mono text-[11px] opacity-70">
+              {['f1', 'f1tv', 'espn', 'winplus', 'dsports', 'fox1ar'].map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => onStreamChange(k, k.toUpperCase())}
+                  className="px-1.5 py-0.5 rounded border border-inherit hover:opacity-100"
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+          </form>
         )}
+
+        {/* Video Frame */}
+        <div className="relative w-full aspect-video bg-black flex items-center justify-center">
+          <iframe
+            key={`${activeStream.streamKey}-${playbackMode}-${theme}-${reloadKey}`}
+            src={playerSrc}
+            title={activeStream.title}
+            className="w-full h-full border-0 absolute inset-0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+          />
+        </div>
       </div>
     </div>
   );
